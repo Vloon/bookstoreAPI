@@ -2,7 +2,7 @@
   "name": "bookstoreapi",
   "version": "1.0.0",
   "description": "",
-  "main": "index.ts",
+  "main": "server.ts",
   "scripts": {
     "devStart": "nodemon server.ts"
   },
@@ -10,10 +10,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/better-sqlite3": "^7.6.10",
     "bcrypt": "^5.1.1",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
