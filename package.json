@@ -2,7 +2,7 @@
   "name": "bookstoreapi",
   "version": "1.0.0",
   "description": "",
-  "main": "server.ts",
+  "main": "src/server.ts",
   "scripts": {
     "devStart": "nodemon src/server.ts"
   },
