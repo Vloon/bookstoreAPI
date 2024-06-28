@@ -14,6 +14,13 @@ const PORT: number = 8080;
 const userManager: UserManager = new UserManager();
 const bookManager: BookManager = new BookManager();
 
+function noFieldsGiven(obj: object, keys: string[]): boolean {
+    let noFields = true;   
+    for (let key of keys) 
+        noFields = noFields && !Object.keys(obj).includes(key);
+    return noFields;
+}
+
 function allFieldsGiven(obj: object, res: Response, mandatoryKeys: string[] = []): boolean {
     for (let key of mandatoryKeys) 
         if (!Object.keys(obj).includes(key)) {
@@ -101,23 +108,23 @@ app.post('/books', authorizeToken, (req: Request<any, any, any, { title: string,
                 bookManager.addBook(book);
                 res.status(200).send(`Book "${book.title}" added`);
             } catch (err) {
-                res.status(500).send('Something went wrong while adding a book');
+                res.status(500).send(`Something went wrong while getting books`);
             }
         }
     }
 });
 
-app.get('/books/all', authorizeToken, (req: Request, res: Response) => {
-    try {
-        const books: Book[] = bookManager.getAllBooks();
-        res.status(200).json(books);
-    } catch {
-        res.status(500).send(`Something went wrong while getting books`);
-    }
-});
-
 app.get('/books', authorizeToken, (req: Request<any, any, any, { field: string, filter: string, value: string }>, res: Response) => {
-    if (allFieldsGiven(req.query, res, ['field', 'filter', 'value']) && allValidBookGetConstraints(res, req.query)) {
+    const bookGetFields: string[] = ['field', 'filter', 'value'];
+    if (noFieldsGiven(req.query, bookGetFields)) {
+        try {
+            const books: Book[] = bookManager.getAllBooks();
+            res.status(200).json(books);
+        } catch {
+            res.status(500).send(`Something went wrong while getting books`);
+        }
+    }
+    else if (allFieldsGiven(req.query, res, bookGetFields) && allValidBookGetConstraints(res, req.query)) {
         const field: string = req.query.field;
         const filter: Filter = req.query.filter as Filter;
         const value: string = req.query.value;
