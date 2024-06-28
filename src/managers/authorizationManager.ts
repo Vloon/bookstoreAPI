@@ -3,11 +3,12 @@ dotenv.config();
 import { NextFunction, Request, Response } from 'express';
 
 import jwt from 'jsonwebtoken';
+import { User } from '../objects/user';
 
 const ACCESS_TOKEN_KEY: string = process.env.ACCESS_TOKEN_KEY!;
 
-export function createJWT(user: { username: string, password: string }): string {
-    const accessToken = jwt.sign(user, ACCESS_TOKEN_KEY);
+export function createJWT(user: User): string {
+    const accessToken = jwt.sign(user.toObject(), ACCESS_TOKEN_KEY);
     return accessToken;
 }
 

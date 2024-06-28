@@ -1,7 +1,6 @@
 import { Book } from "../objects/book";
 import { Filter } from "../objects/filter";
-import sqlite3, { Database } from "sqlite3";
-sqlite3.verbose();
+import Database, { Database as DatabaseType, SqliteError,Statement } from 'better-sqlite3';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -9,31 +8,28 @@ const databaseName: string = process.env.DATABASE_NAME!;
 
 export class BookManager {
 
-    private bookDatabase: Database;
-    private readonly validFields: string[] = ['id', 'title', 'author', 'genre'] as const;
+    private bookDatabase: DatabaseType;
+    private readonly validFields: string[] = ['id', 'title', 'author', 'genre', 'yearPublished'] as const;
 
     constructor() {
         this.bookDatabase = new Database(databaseName);
-        const initQuery = `
+        const initQuery: Statement = this.bookDatabase.prepare(`
         CREATE TABLE IF NOT EXISTS books (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             author TEXT NOT NULL,
             genre TEXT,
             yearPublished INTEGER
-        );`;
-        this.bookDatabase.run(initQuery, (err) => {
-            if (err)
-                console.error(err.message);
-        });
+        );`);
+        initQuery.run();
     }
 
-    addBook(book: Book, callback: (err: Error) => void) {
+    addBook(book: Book): void {
         const query: string = `INSERT INTO books (title, author, genre, yearPublished) VALUES ($title, $author, $genre, $yearPublished);`
-        this.bookDatabase.run(query, book.toSQLObject(), callback);
+        this.bookDatabase.prepare(query).run(book.toJSON());
     }
 
-    getBooks(field: string, filter: Filter, value: string, callback: (err: Error, rows: Array<any>) => void) {
+    getBooks(field: string, filter: Filter, value: string): Book[] {
         let query: string;
         switch (filter) {
             case '=':
@@ -45,14 +41,16 @@ export class BookManager {
                 query = `SELECT * FROM books WHERE ${field} LIKE ?;`;
                 break;
             default:
-                return;
+                return[];
         }
-        this.bookDatabase.all(query, [value], callback);
+        const runResult = this.bookDatabase.prepare(query).all(value) as {title: string, author: string, genre: string, yearPublished: number}[];
+        return runResult.map(row => new Book(row.title, row.author, row.genre, row.yearPublished));
     } 
 
-    getAllBooks(callback: (err: Error, rows: {id: number, title: string, author: string, genre: string, yearPublished: number}[]) => void) {
+    getAllBooks(): Book[] {
         const query: string = `SELECT * FROM books;`;
-        this.bookDatabase.all(query, callback);
+        const runResult = this.bookDatabase.prepare(query).all() as {title: string, author: string, genre: string, yearPublished: number}[];
+        return runResult.map(row => new Book(row.title, row.author, row.genre, row.yearPublished));
     }
 
     isValidField(field: string): boolean {

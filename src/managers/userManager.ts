@@ -1,6 +1,6 @@
-import { hashPassword, validateUser } from "./passwordManager";
-import sqlite3, { Database } from "sqlite3";
-sqlite3.verbose();
+import { hashPassword, validatePassword } from "./passwordManager";
+import { User } from '../objects/user';
+import Database, { Database as DatabaseType, SqliteError, Statement } from 'better-sqlite3';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -11,59 +11,51 @@ const databaseName: string = process.env.DATABASE_NAME!;
  */
 export class UserManager {
 
-    private userDatabase: Database;
+    private userDatabase: DatabaseType;
 
     constructor() {
         this.userDatabase = new Database(databaseName);
-        const initQuery = `
+        const initQuery: Statement = this.userDatabase.prepare(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL
-        );`;
-        this.userDatabase.run(initQuery, (err) => {
-            if (err)
-                console.error(err.message);
-        });
+            hashedPassword TEXT NOT NULL
+        );`);
+        initQuery.run();
     }
 
     /**
      * Adds a new user. 
      * Needs callback functions for both database.run and the hashPassword function's Promise rejection. 
      * @param requestedUser The requested user to be added
-     * @param callbackSQL A callback function called after adding the user to the SQL database
-     * @param callbackHashError A callback function to be called when catching an error from the hashPassword function
+     * @param callbackSQLError A callback function to be called when catching an error from the hashPassword function
      */
-    addUser(requestedUser: { username: string, password: string }, callbackSQL: (err: Error) => void, callbackHashError: (err: Error) => void): void {
+    addUser(requestedUser: { username: string, password: string }, callbackSQLSuccess: () => void, callbackSQLError: () => void): void {
         hashPassword(requestedUser.password)
-        .then((hashedPassword: string) => {
-            const query: string = `INSERT INTO users (username, password) VALUES ($username, $password);`
-            const user: { $username: string, $password: string } = {
-                $username: requestedUser.username,
-                $password: hashedPassword
-            };
-            this.userDatabase.run(query, user, callbackSQL);
-        })
-        .catch((err: Error) => callbackHashError(err));
+            .then((hashedPassword: string) => {
+                const query: string = `INSERT INTO users (username, hashedPassword) VALUES (?, ?);`
+                this.userDatabase.prepare(query).run(requestedUser.username, hashedPassword); // Throws an error if e.g. username already exists
+                callbackSQLSuccess();
+            })
+            .catch((err) => {if(err) callbackSQLError();});
     }
 
-    getAllUsers(callback: (err: Error, rows: {username: string, password: string}[]) => void): void {
+    getAllUsers(): User[] {
         const query: string = `SELECT * FROM users;`;
-        this.userDatabase.all(query, callback);        
+        const rows: { username: string, hashedPassword: string }[] = this.userDatabase.prepare(query).all() as { username: string, hashedPassword: string }[];
+        const allUsers: User[] = rows.map((row) => new User(row.username, row.hashedPassword));
+        return allUsers;
     }
 
-    /**
-     * Checks whether the user is in the database, and checks whether the password is correct. 
-     * @param requestedUser the user making the request
-     * @param callback function to be called after the user is validated
-     * @returns whether the user is  valid
-     */
-    getUser(requestedUser: { $username: string, password: string }, callback: (err: Error, row: undefined|{username: string, password: string}) => void): void {
-        const query = `SELECT * FROM users WHERE username = $username`;
-        this.userDatabase.get(query, requestedUser, callback);
+    getUser(requestedUsername: string): null | User { // : User {
+        const query = `SELECT * FROM users WHERE username = ?`;
+        const row: { username: string, hashedPassword: string } = this.userDatabase.prepare(query).get(requestedUsername) as { username: string, hashedPassword: string };
+        if (row == null)
+            return null;
+        return new User(row.username, row.hashedPassword);
     }
 
-    validateUser(rawPassword: string, hashedPassword: string): Promise<boolean> {
-        return validateUser(rawPassword, hashedPassword);
+    validatePassword(password: string, hashedPassword: string): Promise<boolean> {
+        return validatePassword(password, hashedPassword);
     }
 }

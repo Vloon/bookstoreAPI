@@ -2,8 +2,9 @@ import express, { Application, Request, Response } from 'express';
 import { createJWT, authorizeToken } from './managers/authorizationManager';
 import { BookManager } from './managers/bookManager';
 import { UserManager } from './managers/userManager';
-import { Book, booksSQLToJSON } from './objects/book';
+import { Book } from './objects/book';
 import { isValidFilter, Filter } from './objects/filter';
+import { User } from './objects/user';
 
 const app: Application = express();
 app.use(express.json());
@@ -13,19 +14,38 @@ const PORT: number = 8080;
 const userManager: UserManager = new UserManager();
 const bookManager: BookManager = new BookManager();
 
-function checkBookGetConstraints(res: Response, field: string, filter: string, value:string): void {
-    if (!isValidFilter(filter)) 
-        res.status(400).send(`Invalid filter ${filter}`);
-    if (!bookManager.isValidField(field)) 
-        res.status(400).send(`Invalid field ${field}`);
+function allFieldsGiven(obj: object, res: Response, mandatoryKeys: string[] = []): boolean {
+    for (let key of mandatoryKeys) 
+        if (!Object.keys(obj).includes(key)) {
+            res.status(400).send(`No value given for attribute ${key}`);
+            return false;
+        }
+    for (let [key, value] of Object.entries(obj))  
+        if (value == null) {
+            res.status(400).send(`No value given for attribute ${key}`);
+            return false;
+        }
+    return true;
 }
 
-function checkValidLogin(isValid: boolean, req: Request, res: Response) {
-    if (isValid) { // Successful login
-        const accessToken: string = createJWT(req.body);
-        res.status(201).json({ accessToken: accessToken }); 
+function allValidBookGetConstraints(res: Response, query: {field: string, filter: string, value: string}): boolean {
+    if (!isValidFilter(query.filter)) {
+        res.status(400).send(`Invalid filter ${query.filter}`);
+        return false;
+    }
+    if (!bookManager.isValidField(query.field)) {
+        res.status(400).send(`Invalid field ${query.field}`);
+        return false;
+    }
+    return true;
+}
+
+function checkValidLogin(isValid: boolean, user: User, res: Response): void {
+    if (isValid) { 
+        const accessToken: string = createJWT(user);
+        res.status(201).json({ accessToken: accessToken });
     } else {
-        res.status(403).send('Invalid username or password'); // Invalid login credentials
+        res.status(403).send('Invalid username or password'); 
     }
 }
 /**
@@ -33,89 +53,82 @@ function checkValidLogin(isValid: boolean, req: Request, res: Response) {
  */
 // Userful to have for now, not for the final product
 app.get('/users', authorizeToken, (req: Request, res: Response) => {
-    userManager.getAllUsers((err, rows) => {
-        if (err)
-            res.sendStatus(500);
-        else
-            res.status(200).json(rows);
-    });
+    try {
+        res.status(200).json(userManager.getAllUsers());
+    } catch (err) {
+        res.status(500).send(err);
+    }
 });
 
 app.post('/users/register', (req: Request, res: Response) => {
-    userManager.addUser(req.body, (err: Error) => {
-        if (err)  
-            res.status(500).send(err.message); // Database problems
-        else
-            res.status(201).send(`Created user with username ${req.body.username}`); // Succesful registration
-    }, (err: Error) => res.status(500).send(err.message));
+    if (allFieldsGiven(req.body, res, ['username', 'password'])) {
+        userManager.addUser(req.body,
+            () => { res.status(201).send(`Created user "${req.body.username}"`); }, // On success
+            () => { res.status(400).send(`Username "${req.body.username}" already taken`); // On error
+        });
+    }
 });
 
 app.post('/users/login', (req: Request, res: Response) => {
-    userManager.getUser(req.body.username, (err: Error, row: undefined|{username: string, password: string}) => { 
-        if (err) {
-            console.log(err);
-            res.status(500).send(err.message); // Something went wrong during the database reading
-        }
+    if (allFieldsGiven(req.body, res, ['username', 'password'])) {
+        const user: null | User = userManager.getUser(req.body.username);
+        if (user == null) 
+            res.status(403).send('Invalid username or password');
         else {
-            if (row == null) 
-                res.status(403).send('Invalid username or password') // Invalid login credentials
-            else { // User is in database
-                userManager.validateUser(req.body.password, row.password)
-                .then((isValid: boolean) => checkValidLogin(isValid, req, res))
-                .catch((err: Error) => res.status(500).send(err.message)); // Server side error while hashing
-            }
+            console.log(req.body.password, user.hashedPassword);
+            userManager.validatePassword(req.body.password, user.hashedPassword)
+                .then((isValid: boolean) => checkValidLogin(isValid, user, res))
+                .catch((err: Error) => res.status(500).send(err.message)); // Problem with hashing the password
         }
-    });
+    }
 });
 
 /**
  * BOOK-RELATED ENDPOINTS
  */
-app.post('/books', authorizeToken, (req: Request<any, any, any, {title: string, author: string, genre: string, yearPublished: string}>, res: Response) => {
-    const title: string = req.query.title;
-    const author: string = req.query.author;
-    const genre: string = req.query.genre;
-    const _yearPublished: string = req.query.yearPublished;
-    const yearPublished: number = parseFloat(_yearPublished);
-    if (isNaN(yearPublished))
-        res.status(400).send(`Invalid yearPublished value "${_yearPublished}"`);
-    else {
-        const book: Book = new Book(title, author, genre, yearPublished);
-        bookManager.addBook(book, (err: Error) => {
-            if (err)
-                res.status(500).send(err.message);
-            else
-                res.status(200).send(`Book ${book.title} added`);
-        })
+app.post('/books', authorizeToken, (req: Request<any, any, any, { title: string, author: string, genre: string, yearPublished: string }>, res: Response) => {
+    if (allFieldsGiven(req.query, res, ['title', 'author', 'genre', 'yearPublished'])) {
+        const title: string = req.query.title;
+        const author: string = req.query.author;
+        const genre: string = req.query.genre;
+        const _yearPublished: string = req.query.yearPublished;
+        const yearPublished: number = parseFloat(_yearPublished); 
+        if (isNaN(yearPublished))
+            res.status(400).send(`Invalid yearPublished value "${_yearPublished}"`);
+        else {
+            const book: Book = new Book(title, author, genre, yearPublished);
+            try {
+                bookManager.addBook(book);
+                res.status(200).send(`Book "${book.title}" added`);
+            } catch (err) {
+                res.status(500).send('Something went wrong while adding a book');
+            }
+        }
     }
 });
 
-app.get('/books/all', authorizeToken, (req: Request, res: Response) => {    
-    bookManager.getAllBooks((err: Error, rows: {id: number, title: string, author: string, genre: string, yearPublished: number}[]) => {
-        if (err)
-            res.status(500).send(err.message);
-        else {
-            const jsonRows = booksSQLToJSON(rows);
-            res.status(200).send(jsonRows);
-        }
-    });
+app.get('/books/all', authorizeToken, (req: Request, res: Response) => {
+    try {
+        const books: Book[] = bookManager.getAllBooks();
+        res.status(200).json(books);
+    } catch {
+        res.status(500).send(`Something went wrong while getting books`);
+    }
 });
 
-app.get('/books', authorizeToken, (req: Request<any, any, any, {field: string, filter: string, value: string}>, res: Response) =>  {
-    const field: string = req.query.field;
-    let filter: string = req.query.filter;
-    let value: string = req.query.value;
-    checkBookGetConstraints(res, field, filter, value);
-    filter = filter as Filter;
-
-    bookManager.getBooks(field, filter, value, (err: Error, rows: {id: number, title: string, author: string, genre: string, yearPublished: number}[]) => {
-        if(err)
-            res.status(500).send(err.message);
-        else {           
-            const jsonRows = booksSQLToJSON(rows);
+app.get('/books', authorizeToken, (req: Request<any, any, any, { field: string, filter: string, value: string }>, res: Response) => {
+    if (allFieldsGiven(req.query, res, ['field', 'filter', 'value']) && allValidBookGetConstraints(res, req.query)) {
+        const field: string = req.query.field;
+        const filter: Filter = req.query.filter as Filter;
+        const value: string = req.query.value;
+        try {
+            const filteredBooks: Book[] = bookManager.getBooks(field, filter, value);
+            const jsonRows = filteredBooks.map(book => book.toJSON());
             res.status(200).send(jsonRows);
+        } catch {
+            res.status(500).send(`Something went wrong while getting books`);
         }
-    });
+    }
 });
 
 app.listen(PORT)

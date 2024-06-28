@@ -13,6 +13,6 @@ export async function hashPassword(password: string, numSaltRounds: number = num
     return hashedPassword;
 }
 
-export async function validateUser(rawPassword: string, hashedPassword: string): Promise<boolean> {
+export async function validatePassword(rawPassword: string, hashedPassword: string): Promise<boolean> {
     return compare(rawPassword, hashedPassword);
 }
