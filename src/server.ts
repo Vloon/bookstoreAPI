@@ -35,7 +35,7 @@ function allFieldsGiven(obj: object, res: Response, mandatoryKeys: string[] = []
     return true;
 }
 
-function allValidBookGetConstraints(res: Response, query: {field: string, filter: string, value: string}): boolean {
+function allValidBookGetConstraints(query: {field: string, filter: string, value: string}, res: Response): boolean {
     if (!isValidFilter(query.filter)) {
         res.status(400).send(`Invalid filter ${query.filter}`);
         return false;
@@ -124,7 +124,7 @@ app.get('/books', authorizeToken, (req: Request<any, any, any, { field: string, 
             res.status(500).send(`Something went wrong while getting books`);
         }
     }
-    else if (allFieldsGiven(req.query, res, bookGetFields) && allValidBookGetConstraints(res, req.query)) {
+    else if (allFieldsGiven(req.query, res, bookGetFields) && allValidBookGetConstraints(req.query, res)) {
         const field: string = req.query.field;
         const filter: Filter = req.query.filter as Filter;
         const value: string = req.query.value;
